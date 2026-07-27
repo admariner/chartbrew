@@ -333,6 +333,61 @@ describe("ChartController CDC bindings", () => {
     expect(refreshedChart.visualization.layers[1].bindingId).toBe(expensesCdc.id);
   });
 
+  it("repairs and persists a missing visualization binding", async () => {
+    const team = await models.Team.create({ name: "Visualization Repair Team" });
+    const project = await models.Project.create({
+      team_id: team.id,
+      name: "Visualization Repair Project",
+      brewName: "visualization-repair-project",
+      ghost: false,
+    });
+    const chart = await models.Chart.create({
+      project_id: project.id,
+      name: "Chart Without Visualization",
+      type: "bar",
+      draft: false,
+    });
+    const dataset = await models.Dataset.create({
+      team_id: team.id,
+      project_ids: [project.id],
+      draft: false,
+      name: "Repair Dataset",
+      fieldsSchema: {
+        "root[].category": "string",
+        "root[].value": "number",
+      },
+    });
+    const cdc = await models.ChartDatasetConfig.create({
+      chart_id: chart.id,
+      dataset_id: dataset.id,
+      legend: "Repair Dataset",
+      xAxis: "root[].category",
+      yAxis: "root[].value",
+      yAxisOperation: "sum",
+    });
+    const controller = new ChartController();
+
+    const repairedChart = await controller.repairVisualization(chart.id, cdc.id);
+
+    expect(repairedChart.visualization.metadata.migratedFrom).toBe("legacy");
+    expect(repairedChart.visualization.layers).toEqual([
+      expect.objectContaining({
+        bindingId: cdc.id,
+        encoding: {
+          category: { field: "root[].category", type: "nominal" },
+          value: expect.objectContaining({
+            aggregate: "sum",
+            field: "root[].value",
+            type: "quantitative",
+          }),
+        },
+      }),
+    ]);
+
+    const storedChart = await models.Chart.findByPk(chart.id);
+    expect(storedChart.visualization.layers[0].bindingId).toBe(cdc.id);
+  });
+
   it("remaps cloned visualization bindings to newly created CDC IDs", async () => {
     const team = await models.Team.create({ name: "Clone Team" });
     const project = await models.Project.create({

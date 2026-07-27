@@ -11,6 +11,10 @@ const runtimeCache = require("../modules/runtimeCache");
 const { getDatasetName, resolveChartDatasetOptions } = require("../modules/resolveChartDatasetOptions");
 const { findSourceForConnection } = require("../sources");
 const { assertSourceServerEnabled } = require("../sources/sourceAvailability");
+const {
+  markChartDatasetIntelligenceStale,
+  markDatasetIntelligenceStale,
+} = require("../modules/datasetIntelligence/profileLifecycle");
 
 const db = require("../models/models");
 const DatasetController = require("./DatasetController");
@@ -270,6 +274,22 @@ class ChartController {
     return this.findById(chartId, null, options);
   }
 
+  async repairVisualization(chartId, bindingId) {
+    const chart = await this.findById(chartId, null, {
+      reconcileVisualizationBindings: false,
+    });
+    if (!chart) throw new Error("Chart not found");
+
+    const binding = (chart.ChartDatasetConfigs || []).find((cdc) => {
+      return `${cdc.id}` === `${bindingId}`;
+    });
+    if (!binding) throw new Error("Dataset configuration not found");
+
+    return this.syncLegacyVisualization(chartId, {}, {
+      addBinding: binding.id,
+    });
+  }
+
   update(id, data, user, justUpdates) {
     if (data.autoUpdate || data.autoUpdate === 0) {
       return db.Chart.update(data, {
@@ -299,10 +319,11 @@ class ChartController {
           }
         })
         .then(async (chart) => {
-          if (shouldSyncLegacyChart(data)) {
-            return this.syncLegacyVisualization(id, {}, { chartData: data });
-          }
-          return chart;
+          const updatedChart = shouldSyncLegacyChart(data)
+            ? await this.syncLegacyVisualization(id, {}, { chartData: data })
+            : chart;
+          await markChartDatasetIntelligenceStale(id);
+          return updatedChart;
         })
         .catch((error) => {
           return new Promise((resolve, reject) => reject(error));
@@ -365,10 +386,11 @@ class ChartController {
         }
       })
       .then(async (chart) => {
-        if (shouldSyncLegacyChart(data)) {
-          return this.syncLegacyVisualization(id, {}, { chartData: data });
-        }
-        return chart;
+        const updatedChart = shouldSyncLegacyChart(data)
+          ? await this.syncLegacyVisualization(id, {}, { chartData: data })
+          : chart;
+        await markChartDatasetIntelligenceStale(id);
+        return updatedChart;
       })
       .catch((error) => {
         return new Promise((resolve, reject) => reject(error));
@@ -1538,6 +1560,7 @@ class ChartController {
         await this.syncLegacyVisualization(chartId, {}, {
           addBinding: chartDatasetConfig.id,
         });
+        await markDatasetIntelligenceStale(chartDatasetConfig.dataset_id);
         return chartDatasetConfig;
       })
       .catch((err) => {
@@ -1555,6 +1578,7 @@ class ChartController {
             cdcData: data,
           });
         }
+        await markDatasetIntelligenceStale(chartDatasetConfig?.dataset_id);
         return chartDatasetConfig;
       })
       .catch((err) => {
@@ -1570,6 +1594,7 @@ class ChartController {
           await this.syncLegacyVisualization(chartDatasetConfig.chart_id, {}, {
             removeBinding: chartDatasetConfig.id,
           });
+          await markDatasetIntelligenceStale(chartDatasetConfig.dataset_id);
         }
         return result;
       })

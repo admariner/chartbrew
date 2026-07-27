@@ -19,6 +19,8 @@ const {
   startRun,
 } = require("../modules/updateAudit");
 const runtimeCache = require("../modules/runtimeCache");
+const { markDatasetIntelligenceStale } = require("../modules/datasetIntelligence/profileLifecycle");
+const { scheduleDatasetProfile } = require("../modules/datasetIntelligence/profileScheduler");
 
 function joinData(joins, index, requests, data) {
   const dr = requests.find((r) => r?.dataRequest?.id === joins[index].dr_id);
@@ -291,10 +293,11 @@ class DatasetController {
 
   updateByTeam(id, teamId, data) {
     return db.Dataset.update(data, { where: { id, team_id: teamId } })
-      .then(([affectedRows]) => {
+      .then(async ([affectedRows]) => {
         if (affectedRows === 0) {
           return new Promise((resolve, reject) => reject(new Error(404)));
         }
+        await markDatasetIntelligenceStale(id, teamId);
         return this.findByIdAndTeam(id, teamId);
       })
       .catch((error) => {
@@ -765,6 +768,12 @@ class DatasetController {
               variantHash: runtimeContext?.sourceVariantHash || null,
             });
           }
+
+          scheduleDatasetProfile({
+            datasetId: gDataset?.id || dataset_id,
+            teamId: gDataset?.team_id || teamId || team_id,
+            sampleData: data,
+          }).catch(() => null);
 
           return Promise.resolve({
             options: gDataset,

@@ -5,7 +5,7 @@ import {
   Autocomplete, EmptyState, Label, ListBox, SearchField, useFilter,
   Button, Chip, InputGroup, Link, Modal, TextField,
 } from "@heroui/react";
-import { LuChartColumn, LuCheck, LuPencil } from "react-icons/lu";
+import { LuBookOpen, LuChartColumn, LuCheck, LuPencil } from "react-icons/lu";
 import { useLocation, useNavigate, useParams } from "react-router";
 
 import { createChart, createCdc, getProjectCharts, runQuery, updateChart } from "../../slices/chart";
@@ -21,6 +21,7 @@ import getDashboardLayout from "../../modules/getDashboardLayout";
 import getDefaultCdcBindings from "../../modules/getDefaultCdcBindings";
 import { placeNewWidget } from "../../modules/autoLayout";
 import { ButtonSpinner } from "../../components/ButtonSpinner";
+import DatasetIntelligenceModal from "./DatasetIntelligenceModal";
 
 const defaultNewChart = {
   type: "line",
@@ -54,6 +55,7 @@ function Dataset() {
   const [createChartSelectedProjectKey, setCreateChartSelectedProjectKey] = useState(null);
   const [createChartSubmitAttempted, setCreateChartSubmitAttempted] = useState(false);
   const [createChartFromDatasetLoading, setCreateChartFromDatasetLoading] = useState(false);
+  const [datasetIntelligenceOpen, setDatasetIntelligenceOpen] = useState(false);
 
   const params = useParams();
   const dispatch = useDispatch();
@@ -386,6 +388,16 @@ function Dataset() {
         </div>
 
         <div className="flex flex-row gap-2 flex-wrap">
+          {!dataset?.draft && (
+            <Button
+              variant="outline"
+              onPress={() => setDatasetIntelligenceOpen(true)}
+              isDisabled={!dataset?.id}
+            >
+              <LuBookOpen size={16} />
+              Dataset meaning
+            </Button>
+          )}
           {!fromChart && (
             <Button
               variant="outline"
@@ -410,6 +422,14 @@ function Dataset() {
       </div>
 
       <DatasetQuery onUpdateDataset={_onUpdateDataset} />
+
+      <DatasetIntelligenceModal
+        datasetId={dataset?.id}
+        isOpen={datasetIntelligenceOpen}
+        onOpenChange={(nextOpen) => setDatasetIntelligenceOpen(nextOpen)}
+        teamId={team?.id}
+        onClose={() => setDatasetIntelligenceOpen(false)}
+      />
 
       <Modal.Backdrop
         isOpen={draftSaveModalOpen}

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { useDispatch, useSelector } from "react-redux";
+import { useParams } from "react-router";
 import toast from "react-hot-toast";
 import {
   Accordion,
@@ -50,6 +51,7 @@ import {
   updateLayerSeriesOptions,
 } from "../../../modules/visualization";
 import { runRequest as runDatasetRequest, updateDataset } from "../../../slices/dataset";
+import { repairChartVisualization } from "../../../slices/chart";
 import canAccess from "../../../config/canAccess";
 import { selectUser } from "../../../slices/user";
 import { selectTeam } from "../../../slices/team";
@@ -367,9 +369,11 @@ function ChartDatasetDataSetup({
   onEditDataset,
 }) {
   const dispatch = useDispatch();
+  const params = useParams();
   const datasetResponse = useSelector((state) => state.dataset.responses
     .find((response) => response.dataset_id === dataset?.id)?.data);
   const [loadingFields, setLoadingFields] = useState(false);
+  const [repairingVisualization, setRepairingVisualization] = useState(false);
   const [selectedLayerId, setSelectedLayerId] = useState(null);
   const user = useSelector(selectUser);
   const team = useSelector(selectTeam);
@@ -449,6 +453,21 @@ function ChartDatasetDataSetup({
   };
 
   const _fieldOption = (value) => fieldOptions.find((field) => field.value === value) || null;
+  const _repairVisualization = async () => {
+    setRepairingVisualization(true);
+    try {
+      await dispatch(repairChartVisualization({
+        project_id: params.projectId,
+        chart_id: chart.id,
+        binding_id: cdc.id,
+      })).unwrap();
+      toast.success("Chart fields restored");
+    } catch {
+      toast.error("Could not restore chart fields. Please try again.");
+    } finally {
+      setRepairingVisualization(false);
+    }
+  };
   const _commitVisualization = (nextVisualization, chartChanges = {}, cdcChanges = null) => {
     onUpdateVisualization({
       cdcChanges,
@@ -827,6 +846,24 @@ function ChartDatasetDataSetup({
             </Button>
           )}
         </>
+      )}
+
+      {!selectedLayer && (
+        <div className="rounded-2xl border border-dashed border-divider p-4 text-center">
+          <div className="text-sm font-medium">Chart fields need to be restored</div>
+          <div className="mt-1 text-xs text-foreground-500">
+            Restore this chart’s field setup to continue editing.
+          </div>
+          <Button
+            className="mt-3"
+            size="sm"
+            variant="secondary"
+            isPending={repairingVisualization}
+            onPress={_repairVisualization}
+          >
+            Restore chart fields
+          </Button>
+        </div>
       )}
 
       <Separator />
