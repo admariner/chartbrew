@@ -11,7 +11,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function buildEngine(mark, encoding, data, layer = {}, chart = {}) {
+function buildEngine(mark, encoding, data, layer = {}, chart = {}, datasetOptions = {}) {
   return new VisualizationEngine({
     chart: {
       displayLegend: true,
@@ -33,6 +33,7 @@ function buildEngine(mark, encoding, data, layer = {}, chart = {}) {
       data,
       options: {
         id: "cdc-main",
+        ...datasetOptions,
       },
     }],
   });
@@ -235,6 +236,25 @@ describe("visualization output compilers", () => {
       { name: "Starter", revenue: "1,235" },
       { name: "Advanced", revenue: "2,500" },
     ]);
+  });
+
+  it("compiles tables with object-based legacy groups", () => {
+    const result = buildEngine("table", {}, [{
+      country: "us",
+      pageviews: 949,
+    }], {
+      name: "Countries",
+    }, {}, {
+      groups: {
+        country: "pageviews",
+      },
+    }).render();
+
+    expect(result.configuration.Countries.data).toEqual([{
+      country: "us",
+      pageviews: 949,
+      us: 949,
+    }]);
   });
 
   it("exports filtered source rows through the same visualization facade", () => {
