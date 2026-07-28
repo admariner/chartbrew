@@ -133,6 +133,61 @@ function getStatistics(values, type) {
   return statistics;
 }
 
+function summarizeSampleData(sampleData, maxSampleRows = 200, maxFields = 200) {
+  const rows = findSampleRows(sampleData, maxSampleRows);
+  const schema = normalizeSchema({}, rows);
+  const fields = {};
+
+  Object.entries(schema)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .slice(0, maxFields)
+    .forEach(([fieldPath, type]) => {
+      fields[fieldPath] = getStatistics(getFieldValues(rows, fieldPath), type);
+    });
+
+  return {
+    rowCountSampled: rows.length,
+    schema: Object.fromEntries(
+      Object.entries(schema)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .slice(0, maxFields)
+    ),
+    fields,
+  };
+}
+
+function summarizeProfileData(profile, maxFields = 200) {
+  if (!profile?.fields || Object.keys(profile.fields).length === 0) return null;
+
+  const fieldEntries = Object.entries(profile.fields)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .slice(0, maxFields);
+  const quality = profile.quality || {};
+
+  return {
+    rowCountSampled: quality.rowCountSampled || 0,
+    schema: Object.fromEntries(
+      fieldEntries.map(([fieldPath, field]) => [fieldPath, field.type || "unknown"])
+    ),
+    fields: Object.fromEntries(fieldEntries.map(([fieldPath]) => {
+      const numericRange = quality.numericRanges?.[fieldPath];
+      const dateCoverage = quality.dateCoverage?.[fieldPath];
+      return [fieldPath, {
+        nullRate: quality.nullRates?.[fieldPath] ?? null,
+        cardinality: quality.cardinality?.[fieldPath] ?? 0,
+        ...(numericRange ? {
+          min: numericRange.min,
+          max: numericRange.max,
+        } : {}),
+        ...(dateCoverage ? {
+          minDate: dateCoverage.min,
+          maxDate: dateCoverage.max,
+        } : {}),
+      }];
+    })),
+  };
+}
+
 function getConfidence({ hasUsage, evidenceCount }) {
   if (hasUsage) return 0.98;
   if (evidenceCount >= 2) return 0.9;
@@ -142,12 +197,17 @@ function getConfidence({ hasUsage, evidenceCount }) {
 function inferFieldSemantics({
   fieldsSchema = {},
   sampleData,
+  sampleSummary,
   usageByField = {},
   maxSampleRows = 200,
   maxFields = 200,
 }) {
-  const rows = findSampleRows(sampleData, maxSampleRows);
-  const schema = normalizeSchema(fieldsSchema, rows);
+  const rows = sampleSummary ? [] : findSampleRows(sampleData, maxSampleRows);
+  const schema = {
+    ...normalizeSchema(fieldsSchema, rows),
+    ...(sampleSummary?.schema || {}),
+  };
+  const rowCountSampled = sampleSummary?.rowCountSampled ?? rows.length;
   const fieldEntries = Object.entries(schema)
     .filter(([fieldPath]) => fieldPath)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -155,7 +215,7 @@ function inferFieldSemantics({
 
   const fields = {};
   const quality = {
-    rowCountSampled: rows.length,
+    rowCountSampled,
     nullRates: {},
     cardinality: {},
     numericRanges: {},
@@ -170,7 +230,12 @@ function inferFieldSemantics({
     const usage = usageByField[fieldPath] || {};
     const role = getRole(fieldPath, type, usage.role);
     const semanticType = getSemanticType(fieldPath, type);
-    const statistics = getStatistics(values, type);
+    const statistics = sampleSummary
+      ? sampleSummary.fields?.[fieldPath] || {
+        nullRate: rowCountSampled > 0 ? 1 : null,
+        cardinality: 0,
+      }
+      : getStatistics(values, type);
     const evidence = [];
 
     if (usage.role) evidence.push(`visualization_${usage.role}`);
@@ -228,5 +293,7 @@ module.exports = {
   inferFieldSemantics,
   inferType,
   normalizeSchema,
+  summarizeProfileData,
+  summarizeSampleData,
   stripRoot,
 };

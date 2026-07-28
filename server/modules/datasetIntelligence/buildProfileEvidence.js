@@ -205,7 +205,9 @@ function inferGrain(fields, quality) {
   };
 }
 
-function buildDatasetProfile({ dataset, sampleData, policy }) {
+function buildDatasetProfile({
+  dataset, sampleData, sampleSummary, policy
+}) {
   const {
     usage,
     usageByField,
@@ -215,6 +217,7 @@ function buildDatasetProfile({ dataset, sampleData, policy }) {
   const { fields, quality } = inferFieldSemantics({
     fieldsSchema: dataset.fieldsSchema || {},
     sampleData,
+    sampleSummary,
     usageByField,
     maxSampleRows: policy.maxSampleRows,
     maxFields: policy.maxFields,

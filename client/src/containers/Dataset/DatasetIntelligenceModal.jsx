@@ -296,7 +296,7 @@ function DatasetIntelligenceModal({
                   <div className="flex justify-between items-center">
                     <div className="font-semibold">Fields</div>
                     <Button
-                      variant="tertiary"
+                      variant="secondary"
                       onPress={useAutomaticValues}
                       isDisabled={loading || saving || !intelligence?.profile}
                     >

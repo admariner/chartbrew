@@ -396,6 +396,7 @@ function Dataset() {
             >
               <LuBookOpen size={16} />
               Dataset meaning
+              <Chip size="sm" variant="soft" color="accent">New!</Chip>
             </Button>
           )}
           {!fromChart && (

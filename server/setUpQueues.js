@@ -8,6 +8,9 @@ const bullBoardAuth = require("./middlewares/bullBoardAuth");
 const updateCharts = require("./crons/updateCharts");
 const updateDashboards = require("./crons/updateDashboards");
 const sendSnapshots = require("./crons/sendSnapshots");
+const {
+  getDatasetIntelligenceQueue,
+} = require("./modules/datasetIntelligence/profileQueue");
 // const updateSnapshots = require("./crons/updateSnapshots");
 
 const WORKER_LOCK_DURATION_MS = parseInt(process.env.CB_QUEUE_LOCK_DURATION_MS, 10) || 900000;
@@ -34,6 +37,7 @@ function debugQueueLog(queueName, eventName, payload = null) {
 let updateChartsQueue;
 let updateDashboardsQueue;
 let updateMongoDBSchemaQueue;
+let datasetIntelligenceQueue;
 
 const setUpQueues = (app) => {
   const queuesToClose = [];
@@ -168,6 +172,22 @@ const setUpQueues = (app) => {
   });
   workersToClose.push(takeSnapshotWorker);
 
+  /*
+  ** Dataset Intelligence Queue
+  */
+  datasetIntelligenceQueue = getDatasetIntelligenceQueue();
+  queuesToClose.push(datasetIntelligenceQueue);
+  const datasetIntelligenceWorker = new Worker(datasetIntelligenceQueue.name, async (job) => {
+    const profileDataset = require("./crons/workers/profileDataset"); // eslint-disable-line
+    await profileDataset(job);
+  }, {
+    connection: datasetIntelligenceQueue.opts.connection,
+    concurrency: 2,
+    lockDuration: WORKER_LOCK_DURATION_MS,
+    lockRenewTime: EFFECTIVE_WORKER_LOCK_RENEW_TIME_MS,
+  });
+  workersToClose.push(datasetIntelligenceWorker);
+
   const serverAdapter = new ExpressAdapter();
   serverAdapter.setBasePath("/apps/queues");
 
@@ -178,6 +198,7 @@ const setUpQueues = (app) => {
       new BullMQAdapter(updateMongoDBSchemaQueue),
       new BullMQAdapter(dashboardSnapshotQueue),
       new BullMQAdapter(updateSnapshotsQueue),
+      new BullMQAdapter(datasetIntelligenceQueue),
     ],
     serverAdapter,
     options: {
@@ -249,5 +270,6 @@ module.exports = {
     updateChartsQueue,
     updateDashboardsQueue,
     updateMongoDBSchemaQueue,
+    datasetIntelligenceQueue,
   }),
 };

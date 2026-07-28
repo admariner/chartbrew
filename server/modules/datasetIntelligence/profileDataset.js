@@ -3,9 +3,17 @@ const { sanitizeSnippet } = require("../updateAudit");
 const { getIntelligencePolicy } = require("../intelligence/policy");
 const { buildDatasetProfile } = require("./buildProfileEvidence");
 const { enrichProfile } = require("./enrichProfile");
-const { buildProfileFingerprints } = require("./profileFingerprint");
+const {
+  buildProfileFingerprints,
+  createFingerprint,
+} = require("./profileFingerprint");
+const {
+  summarizeProfileData,
+  summarizeSampleData,
+} = require("./inferFieldSemantics");
 const { mergeOverrides, sanitizeOverrides } = require("./mergeOverrides");
 const { serializeProfile, validateProfile } = require("./profileSchema");
+const { recordIntelligenceEvent } = require("./observability");
 
 const pendingProfileRuns = new Map();
 
@@ -75,9 +83,13 @@ async function generateDatasetProfile({
   datasetId,
   teamId,
   sampleData,
+  sampleSummary,
   force = false,
+  generationReason = force ? "manual_refresh" : "lazy",
+  throwOnFailure = false,
   policy: suppliedPolicy,
 }) {
+  const startedAt = Date.now();
   const resolvedPolicy = suppliedPolicy || await getIntelligencePolicy({ teamId });
   const policy = resolvedPolicy.datasetIntelligence;
   if (!policy.enabled) {
@@ -90,11 +102,29 @@ async function generateDatasetProfile({
 
   try {
     const dataset = await loadDatasetEvidence(datasetId, teamId);
+    const providedSampleSummary = sampleSummary || (
+      sampleData !== undefined
+        ? summarizeSampleData(sampleData, policy.maxSampleRows, policy.maxFields)
+        : null
+    );
+    const effectiveSampleSummary = providedSampleSummary || (
+      Object.keys(dataset.fieldsSchema || {}).length === 0
+        ? summarizeProfileData(existing?.profile, policy.maxFields)
+        : null
+    );
+    const sampleFingerprint = effectiveSampleSummary
+      ? createFingerprint(effectiveSampleSummary)
+      : null;
     const { profile: generatedProfile, fingerprintUsages } = buildDatasetProfile({
       dataset,
-      sampleData,
+      sampleSummary: effectiveSampleSummary,
       policy,
     });
+    if (!providedSampleSummary && effectiveSampleSummary) {
+      generatedProfile.provenance.sampleGeneratedAt = (
+        existing?.profile?.provenance?.sampleGeneratedAt || null
+      );
+    }
     const fingerprints = buildProfileFingerprints({
       dataset,
       dataRequests: dataset.DataRequests || [],
@@ -104,8 +134,17 @@ async function generateDatasetProfile({
     if (!force
       && existing?.status === "ready"
       && existing.fingerprint === fingerprints.fingerprint
+      && (existing.profile?.provenance?.sampleFingerprint || null) === sampleFingerprint
       && !isExpired(existing)
     ) {
+      recordIntelligenceEvent("generation_skipped", {
+        datasetId,
+        teamId,
+        generationReason,
+        durationMs: Date.now() - startedAt,
+        profileStatus: "ready",
+        status: "unchanged",
+      });
       return getProfileResponse(existing, policy);
     }
 
@@ -119,6 +158,7 @@ async function generateDatasetProfile({
         schemaFingerprint: fingerprints.schemaFingerprint,
         definitionFingerprint: fingerprints.definitionFingerprint,
         usageFingerprint: fingerprints.usageFingerprint,
+        sampleFingerprint,
       },
     };
 
@@ -161,6 +201,17 @@ async function generateDatasetProfile({
         ...values,
       });
     }
+    recordIntelligenceEvent("generation_completed", {
+      datasetId,
+      teamId,
+      generationReason,
+      durationMs: Date.now() - startedAt,
+      fieldCount: Object.keys(merged.profile.fields || {}).length,
+      sampleCount: merged.profile.quality?.rowCountSampled || 0,
+      enriched: Boolean(merged.profile.provenance?.llmEnriched),
+      profileStatus: "ready",
+      status: "completed",
+    });
     return getProfileResponse(savedRecord, policy);
   } catch (error) {
     const lastError = sanitizeSnippet(error?.message || error, 500);
@@ -169,6 +220,15 @@ async function generateDatasetProfile({
         status: "failed",
         last_error: lastError,
       });
+      recordIntelligenceEvent("generation_failed", {
+        datasetId,
+        teamId,
+        generationReason,
+        durationMs: Date.now() - startedAt,
+        profileStatus: "failed",
+        status: "failed",
+      });
+      if (throwOnFailure) throw error;
       return getProfileResponse(existing, policy);
     }
 
@@ -178,6 +238,14 @@ async function generateDatasetProfile({
       version: 1,
       status: "failed",
       last_error: lastError,
+    });
+    recordIntelligenceEvent("generation_failed", {
+      datasetId,
+      teamId,
+      generationReason,
+      durationMs: Date.now() - startedAt,
+      profileStatus: "failed",
+      status: "failed",
     });
     throw error;
   }

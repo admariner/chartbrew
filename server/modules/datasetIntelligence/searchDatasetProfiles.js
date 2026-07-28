@@ -1,5 +1,6 @@
 const db = require("../../models/models");
 const { getIntelligencePolicy } = require("../intelligence/policy");
+const { recordIntelligenceEvent } = require("./observability");
 
 function normalizeTerms(query) {
   return [...new Set(
@@ -97,6 +98,7 @@ async function searchDatasetProfiles({
   allowedProjectIds,
   limit = 5,
 }) {
+  const startedAt = Date.now();
   const policy = (await getIntelligencePolicy({ teamId })).datasetIntelligence;
   if (!policy.enabled) return { datasets: [], status: "disabled" };
 
@@ -128,13 +130,23 @@ async function searchDatasetProfiles({
     return summarizeCandidate(dataset, intelligence, score);
   });
 
-  return {
+  const result = {
     datasets: candidates
       .filter((candidate) => !query || candidate.relevance > 0)
       .sort((left, right) => right.relevance - left.relevance)
       .slice(0, safeLimit),
     truncated: datasets.length === 500,
   };
+  recordIntelligenceEvent("search_completed", {
+    teamId,
+    durationMs: Date.now() - startedAt,
+    candidateCount: result.datasets.length,
+    selectedDatasetId: result.datasets[0]?.dataset_id,
+    relevance: result.datasets[0]?.relevance || 0,
+    truncated: result.truncated,
+    status: "completed",
+  });
+  return result;
 }
 
 module.exports = {

@@ -9,6 +9,7 @@ const { applySourceVariables } = require("../sources/applySourceVariables");
 const { runSourceDataRequest } = require("../sources/runSourceDataRequest");
 const { assertSourceServerEnabled } = require("../sources/sourceAvailability");
 const { markDatasetIntelligenceStale } = require("../modules/datasetIntelligence/profileLifecycle");
+const { scheduleDataRequestProfile } = require("../modules/datasetIntelligence/profileScheduler");
 
 class RequestController {
   constructor() {
@@ -228,6 +229,12 @@ class RequestController {
             processedRequest.dataRequest.transform
           );
         }
+
+        scheduleDataRequestProfile({
+          dataset: gDataset,
+          dataRequestId: dataRequest.id,
+          sampleData: processedRequest?.responseData?.data,
+        }).catch(() => null);
 
         return Promise.resolve({
           options: gDataset,

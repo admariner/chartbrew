@@ -22,6 +22,8 @@ const {
 } = require("../../modules/datasetIntelligence/buildProfileEvidence");
 const {
   inferFieldSemantics,
+  summarizeProfileData,
+  summarizeSampleData,
 } = require("../../modules/datasetIntelligence/inferFieldSemantics");
 const {
   mergeOverrides,
@@ -48,6 +50,17 @@ const {
   markChartDatasetIntelligenceStale,
   markDatasetIntelligenceStale,
 } = require("../../modules/datasetIntelligence/profileLifecycle");
+const {
+  sanitizeEventPayload,
+} = require("../../modules/datasetIntelligence/observability");
+const {
+  buildProfileJob,
+} = require("../../modules/datasetIntelligence/profileQueue");
+const profileDatasetWorker = require("../../crons/workers/profileDataset");
+const {
+  scheduleDataRequestProfile,
+  scheduleDatasetProfile,
+} = require("../../modules/datasetIntelligence/profileScheduler");
 
 const policy = {
   ...DEFAULT_DATASET_INTELLIGENCE_POLICY,
@@ -172,6 +185,62 @@ describe("intelligence policy", () => {
 });
 
 describe("dataset intelligence inference", () => {
+  it("reduces samples to bounded statistics without retaining rows or string values", () => {
+    const result = summarizeSampleData(sampleRows, 10, 20);
+
+    expect(result).toMatchObject({
+      rowCountSampled: 2,
+      fields: {
+        "root[].amount": {
+          min: 80,
+          max: 120,
+        },
+        "root[].country": {
+          cardinality: 2,
+        },
+      },
+    });
+    expect(result.rows).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("ord_1");
+    expect(JSON.stringify(result)).not.toContain("\"TH\"");
+
+    const inferred = inferFieldSemantics({
+      fieldsSchema: buildDataset().fieldsSchema,
+      sampleSummary: result,
+      usageByField: {},
+      maxFields: 20,
+    });
+    expect(inferred.quality.rowCountSampled).toBe(2);
+    expect(inferred.quality.cardinality["root[].country"]).toBe(2);
+  });
+
+  it("reconstructs safe sample statistics from an existing profile", () => {
+    const profile = buildDatasetProfile({
+      dataset: buildDataset(),
+      sampleData: sampleRows,
+      policy,
+    }).profile;
+    const result = summarizeProfileData(profile, 20);
+
+    expect(result).toMatchObject({
+      rowCountSampled: 2,
+      schema: {
+        "root[].amount": "number",
+        "root[].country": "string",
+      },
+      fields: {
+        "root[].amount": {
+          min: 80,
+          max: 120,
+        },
+        "root[].country": {
+          cardinality: 2,
+        },
+      },
+    });
+    expect(result).not.toHaveProperty("rows");
+  });
+
   it("infers semantic roles, statistics, and aggregations", () => {
     const result = inferFieldSemantics({
       fieldsSchema: buildDataset().fieldsSchema,
@@ -406,6 +475,77 @@ describe("dataset intelligence persistence contracts", () => {
     expect(pendingProfileRuns.size).toBe(0);
   });
 
+  it("adds SQL result fields to an early empty profile and preserves them on refresh", async () => {
+    const dataset = {
+      ...buildDataset(),
+      fieldsSchema: {},
+      ChartDatasetConfigs: [],
+    };
+    const emptyProfile = buildDatasetProfile({
+      dataset,
+      policy,
+    }).profile;
+    const fingerprints = buildProfileFingerprints({
+      dataset,
+      dataRequests: dataset.DataRequests,
+      usages: [],
+    });
+    const existing = {
+      dataset_id: dataset.id,
+      team_id: 7,
+      version: 1,
+      status: "ready",
+      fingerprint: fingerprints.fingerprint,
+      profile: emptyProfile,
+      overrides: {},
+      generated_at: new Date(),
+      expires_at: new Date(Date.now() + 60 * 60 * 1000),
+      update: vi.fn(async (values) => {
+        Object.assign(existing, values);
+        return existing;
+      }),
+    };
+    vi.spyOn(db.DatasetIntelligence, "findOne").mockResolvedValue(existing);
+    vi.spyOn(db.Dataset, "findOne").mockResolvedValue(dataset);
+
+    const sampled = await profileDataset({
+      datasetId: dataset.id,
+      teamId: 7,
+      sampleData: {
+        data: [
+          { chart_type: "kpi", charts: 506 },
+          { chart_type: "line", charts: 382 },
+        ],
+      },
+      policy: { datasetIntelligence: policy },
+    });
+
+    expect(sampled.profile.fields).toMatchObject({
+      "root[].chart_type": {
+        type: "string",
+        role: "dimension",
+      },
+      "root[].charts": {
+        type: "number",
+        role: "measure",
+      },
+    });
+    const sampleGeneratedAt = sampled.profile.provenance.sampleGeneratedAt;
+
+    const refreshed = await profileDataset({
+      datasetId: dataset.id,
+      teamId: 7,
+      force: true,
+      policy: { datasetIntelligence: policy },
+    });
+
+    expect(Object.keys(refreshed.profile.fields).sort()).toEqual(
+      ["root[].charts", "root[].chart_type"].sort()
+    );
+    expect(refreshed.profile.quality.rowCountSampled).toBe(2);
+    expect(refreshed.profile.provenance.sampleGeneratedAt).toBe(sampleGeneratedAt);
+  });
+
   it("keeps lifecycle invalidation best-effort", async () => {
     vi.spyOn(db.DatasetIntelligence, "update").mockRejectedValue(new Error("unavailable"));
     vi.spyOn(db.ChartDatasetConfig, "findAll").mockRejectedValue(new Error("unavailable"));
@@ -428,5 +568,113 @@ describe("dataset intelligence search", () => {
     expect(result.score).toBeGreaterThan(0);
     expect(result.reasons).toContain("existing_chart");
     expect(result.reasons).toContain("field");
+  });
+});
+
+describe("dataset intelligence observability", () => {
+  it("drops profile contents and field names from operational events", () => {
+    expect(sanitizeEventPayload({
+      datasetId: 42,
+      durationMs: 12,
+      fieldCount: 5,
+      fields: ["root[].amount"],
+      profile: { dataset: { summary: "Sensitive" } },
+      query: "revenue by customer",
+    })).toEqual({
+      datasetId: 42,
+      durationMs: 12,
+      fieldCount: 5,
+    });
+  });
+});
+
+describe("dataset intelligence queue", () => {
+  it("uses a stable deduplication key and carries only bounded sample statistics", async () => {
+    const sampleSummary = summarizeSampleData(sampleRows, 10, 20);
+    const job = buildProfileJob({
+      datasetId: 42,
+      teamId: 7,
+      sampleSummary,
+    });
+
+    expect(job.options).toMatchObject({
+      jobId: "dataset-intelligence-7-42",
+      delay: 1000,
+      removeOnComplete: true,
+    });
+    expect(JSON.stringify(job.data)).not.toContain("ord_1");
+    expect(JSON.stringify(job.data)).not.toContain("\"TH\"");
+  });
+
+  it("runs queued profiles with retryable failure behavior", async () => {
+    const runProfileDataset = vi.fn().mockResolvedValue({ status: "ready" });
+    const result = await profileDatasetWorker({
+      data: {
+        datasetId: 42,
+        teamId: 7,
+        sampleSummary: { rowCountSampled: 2, schema: {}, fields: {} },
+        generationReason: "dataset_execution",
+      },
+    }, runProfileDataset);
+
+    expect(result).toEqual({ status: "ready" });
+    expect(runProfileDataset).toHaveBeenCalledWith(expect.objectContaining({
+      datasetId: 42,
+      teamId: 7,
+      generationReason: "dataset_execution",
+      throwOnFailure: true,
+    }));
+  });
+
+  it("keeps dataset execution successful when queueing fails", async () => {
+    const enqueueProfile = vi.fn().mockRejectedValue(new Error("Redis unavailable"));
+
+    await expect(scheduleDatasetProfile({
+      datasetId: 42,
+      teamId: 7,
+      sampleData: sampleRows,
+    }, enqueueProfile)).resolves.toBeNull();
+    expect(enqueueProfile).toHaveBeenCalledOnce();
+  });
+
+  it("profiles a main data request when the dataset has no joins", async () => {
+    const scheduleProfile = vi.fn().mockResolvedValue({ id: "profile-job" });
+    const sampleData = [{ chart_type: "kpi", charts: 506 }];
+
+    await scheduleDataRequestProfile({
+      dataset: {
+        id: 4113,
+        team_id: 60,
+        main_dr_id: 3876,
+        joinSettings: null,
+      },
+      dataRequestId: 3876,
+      sampleData,
+    }, scheduleProfile);
+
+    expect(scheduleProfile).toHaveBeenCalledWith({
+      datasetId: 4113,
+      teamId: 60,
+      sampleData,
+    });
+  });
+
+  it("does not profile an individual request from a joined dataset", async () => {
+    const scheduleProfile = vi.fn();
+
+    await scheduleDataRequestProfile({
+      dataset: {
+        id: 4113,
+        team_id: 60,
+        main_dr_id: 3876,
+        joinSettings: {
+          joins: [{ dr_id: 3876, join_id: 3877 }],
+        },
+      },
+      dataRequestId: 3876,
+      sampleData: [{ chart_type: "kpi", charts: 506 }],
+    }, scheduleProfile);
+
+    expect(scheduleProfile).not.toHaveBeenCalled();
   });
 });

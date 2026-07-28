@@ -1,6 +1,6 @@
 # Dataset Intelligence
 
-Status: implemented; database integration validation pending
+Status: complete
 
 ## Summary
 
@@ -292,13 +292,13 @@ Use existing dataset permissions. Refresh and override writes require dataset ed
 
 Add a compact Dataset Settings section that shows:
 
-- Profile status and last generation time.
 - Summary, grain, default time field, and inferred field roles.
-- Confidence/warning indicators.
 - Refresh action.
 - Explicit overrides for summary, grain, role, aggregation, and default time field.
 
 This is an inspection and correction surface, not a new primary dataset workflow.
+Operational profile state, schema versions, fingerprints, queue state, and other
+implementation metadata remain outside the normal product UI.
 
 ## Proposed Module Layout
 
@@ -314,6 +314,9 @@ server/modules/datasetIntelligence/
   enrichProfile.js
   mergeOverrides.js
   profileDataset.js
+  profileQueue.js
+  profileScheduler.js
+  observability.js
   searchDatasetProfiles.js
 ```
 
@@ -360,7 +363,8 @@ Add the model, migration, controller/routes, queue worker, orchestrator tools, a
 
 1. Land policy, schema, model, deterministic profiler, and tests.
 2. Enable lazy/manual profiling.
-3. Add background profiling from successful dataset results.
+3. Add queue-backed profiling from successful dataset results using bounded sample
+   statistics rather than raw rows.
 4. Backfill in bounded batches.
 5. Enable agent search/retrieval and remove unused broad dataset loading.
 6. Add optional LLM enrichment.
@@ -424,9 +428,8 @@ Automatic profiling reuses that result and does not make another source request.
 - [x] Add `search_datasets` and `get_dataset_intelligence` orchestrator tools.
 - [x] Update orchestration guidance and remove the unused broad dataset load.
 - [x] Add the Dataset Settings inspection/correction section.
-- [ ] Add unit, integration, regression, security, and limit tests.
+- [x] Add unit, integration, regression, security, and limit tests.
 - [x] Document environment variables and a quick enable/backfill verification guide.
 
-The focused unit, security, limit, deduplication, lifecycle, lint, and client build checks pass.
-Database-backed integration and regression suites remain to be run with the repository test
-database available.
+The focused unit, database integration, security, limit, deduplication, lifecycle,
+public-payload regression, lint, and client build checks pass.

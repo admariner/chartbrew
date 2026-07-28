@@ -50,20 +50,20 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: false,
       unique: true,
-      reference: {
+      references: {
         model: "Dataset",
         key: "id",
-        onDelete: "cascade",
       },
+      onDelete: "CASCADE",
     },
     team_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      reference: {
+      references: {
         model: "Team",
         key: "id",
-        onDelete: "cascade",
       },
+      onDelete: "CASCADE",
     },
     version: {
       type: DataTypes.INTEGER,
@@ -115,10 +115,15 @@ module.exports = (sequelize, DataTypes) => {
   });
 
   DatasetIntelligence.associate = (models) => {
-    models.DatasetIntelligence.belongsTo(models.Dataset, { foreignKey: "dataset_id" });
-    models.DatasetIntelligence.belongsTo(models.Team, { foreignKey: "team_id" });
+    models.DatasetIntelligence.belongsTo(models.Dataset, {
+      foreignKey: "dataset_id",
+      onDelete: "CASCADE",
+    });
+    models.DatasetIntelligence.belongsTo(models.Team, {
+      foreignKey: "team_id",
+      onDelete: "CASCADE",
+    });
   };
 
   return DatasetIntelligence;
 };
-
