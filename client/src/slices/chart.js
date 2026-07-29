@@ -106,6 +106,30 @@ export const updateChart = createAsyncThunk(
   }
 );
 
+export const repairChartVisualization = createAsyncThunk(
+  "chart/repairChartVisualization",
+  async ({ project_id, chart_id, binding_id }) => {
+    const token = getAuthToken();
+    const url = `${API_HOST}/project/${project_id}/chart/${chart_id}/visualization/repair`;
+    const method = "POST";
+    const body = JSON.stringify({ bindingId: binding_id });
+    const headers = new Headers({
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+      "authorization": `Bearer ${token}`,
+    });
+
+    const response = await fetch(url, { method, body, headers });
+    const responseJson = await response.json();
+
+    if (response.status >= 400) {
+      throw new Error(responseJson.message);
+    }
+
+    return responseJson;
+  }
+);
+
 export const changeOrder = createAsyncThunk(
   "chart/changeOrder",
   async ({ project_id, chart_id, otherId }, thunkApi) => {
@@ -801,6 +825,27 @@ export const chartSlice = createSlice({
         });
       })
       .addCase(updateChart.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message;
+      })
+
+      // repairChartVisualization
+      .addCase(repairChartVisualization.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(repairChartVisualization.fulfilled, (state, action) => {
+        state.loading = false;
+        state.data = state.data.map((chart) => {
+          if (chart.id === action.payload.id) {
+            return {
+              ...chart,
+              ...action.payload,
+            };
+          }
+          return chart;
+        });
+      })
+      .addCase(repairChartVisualization.rejected, (state, action) => {
         state.loading = false;
         state.error = action.error.message;
       })

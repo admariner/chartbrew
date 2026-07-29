@@ -13,9 +13,10 @@ export default async function globalSetup({ provide }) {
   // Use containerized MySQL by default for testing.
   process.env.CB_DB_DIALECT_DEV = process.env.CB_DB_DIALECT_DEV || "mysql";
 
-  // The global setup owns the container; test workers reuse it via provided
-  // connection details instead of starting their own containers.
-  delete process.env.CB_TEST_DB_REUSE;
+  // The global setup owns a container by default. Developers may explicitly
+  // provide an isolated reusable test database when containers are unavailable.
+  const reuseTestDatabase = process.env.CB_TEST_DB_REUSE === "1";
+  if (!reuseTestDatabase) delete process.env.CB_TEST_DB_REUSE;
 
   // Start test database container (will be shared across all tests)
   await testDbManager.start();

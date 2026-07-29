@@ -520,6 +520,25 @@ module.exports = (app) => {
   // --------------------------------------------------------
 
   /*
+  ** Route to restore a missing visualization binding
+  */
+  app.post(
+    "/project/:project_id/chart/:chart_id/visualization/repair",
+    verifyToken,
+    checkPermissions("updateOwn"),
+    (req, res) => {
+      return chartController.repairVisualization(req.params.chart_id, req.body.bindingId)
+        .then((chart) => {
+          return res.status(200).send(chart);
+        })
+        .catch((error) => {
+          return res.status(400).send({ message: error.message });
+        });
+    }
+  );
+  // --------------------------------------------------------
+
+  /*
   ** Route to update the order of the chart
   */
   app.put("/project/:project_id/chart/:chart_id/order", verifyToken, checkPermissions("updateOwn"), (req, res) => {

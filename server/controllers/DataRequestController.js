@@ -8,6 +8,8 @@ const { findSourceForConnection } = require("../sources");
 const { applySourceVariables } = require("../sources/applySourceVariables");
 const { runSourceDataRequest } = require("../sources/runSourceDataRequest");
 const { assertSourceServerEnabled } = require("../sources/sourceAvailability");
+const { markDatasetIntelligenceStale } = require("../modules/datasetIntelligence/profileLifecycle");
+const { scheduleDataRequestProfile } = require("../modules/datasetIntelligence/profileScheduler");
 
 class RequestController {
   constructor() {
@@ -16,7 +18,8 @@ class RequestController {
 
   create(data) {
     return db.DataRequest.create(data)
-      .then((dataRequest) => {
+      .then(async (dataRequest) => {
+        await markDatasetIntelligenceStale(dataRequest.dataset_id);
         return this.findById(dataRequest.id);
       })
       .catch((error) => {
@@ -112,10 +115,16 @@ class RequestController {
   }
 
   update(id, data) {
-    return db.DataRequest.update(data, {
-      where: { id },
-    })
-      .then(() => {
+    let datasetId;
+    return db.DataRequest.findByPk(id)
+      .then((dataRequest) => {
+        datasetId = dataRequest?.dataset_id;
+        return db.DataRequest.update(data, {
+          where: { id },
+        });
+      })
+      .then(async () => {
+        await markDatasetIntelligenceStale(datasetId);
         return this.findById(id);
       })
       .catch((error) => {
@@ -221,6 +230,12 @@ class RequestController {
           );
         }
 
+        scheduleDataRequestProfile({
+          dataset: gDataset,
+          dataRequestId: dataRequest.id,
+          sampleData: processedRequest?.responseData?.data,
+        }).catch(() => null);
+
         return Promise.resolve({
           options: gDataset,
           dataRequest: processedRequest,
@@ -232,10 +247,16 @@ class RequestController {
   }
 
   delete(id) {
-    return db.DataRequest.destroy({
-      where: { id },
-    })
-      .then(() => {
+    let datasetId;
+    return db.DataRequest.findByPk(id)
+      .then((dataRequest) => {
+        datasetId = dataRequest?.dataset_id;
+        return db.DataRequest.destroy({
+          where: { id },
+        });
+      })
+      .then(async () => {
+        await markDatasetIntelligenceStale(datasetId);
         return new Promise((resolve) => resolve({ deleted: true }));
       })
       .catch((error) => {

@@ -46,6 +46,8 @@ const clientUrl = process.env.NODE_ENV === "production" ? process.env.VITE_APP_C
 const {
   listConnections,
   getSchema,
+  searchDatasets,
+  getDatasetIntelligence,
   generateQuery,
   validateQuery,
   runQuery,
@@ -155,6 +157,8 @@ global.clientUrl = clientUrl;
 const TEAM_SCOPED_TOOLS = new Set([
   "list_connections",
   "get_schema",
+  "search_datasets",
+  "get_dataset_intelligence",
   "validate_query",
   "run_query",
   "create_dataset",
@@ -208,6 +212,32 @@ async function availableTools() {
   const queryGenerationSourceIds = getQueryGenerationSourceIds();
 
   return [
+    {
+      name: "search_datasets",
+      displayName: "Find existing datasets",
+      description: "Search reusable Chartbrew datasets by business concept, field, metric, dimension, chart, or dashboard. Use this before creating a new dataset when existing data may satisfy the request.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          project_id: { type: "integer" },
+          limit: { type: "integer", default: 5 }
+        },
+        required: ["query"]
+      }
+    },
+    {
+      name: "get_dataset_intelligence",
+      displayName: "Understand dataset",
+      description: "Get the semantic fields, suggested aggregations, time field, quality warnings, and existing chart usage for one reusable dataset.",
+      parameters: {
+        type: "object",
+        properties: {
+          dataset_id: { type: "integer" }
+        },
+        required: ["dataset_id"]
+      }
+    },
     {
       name: "list_connections",
       displayName: "Find data sources",
@@ -917,6 +947,10 @@ async function callTool(name, payload) {
         return listConnections(payload);
       case "get_schema":
         return getSchema(payload);
+      case "search_datasets":
+        return searchDatasets(payload);
+      case "get_dataset_intelligence":
+        return getDatasetIntelligence(payload);
       case "generate_query":
         return generateQuery(payload);
       case "validate_query":
@@ -1037,6 +1071,7 @@ ${ENTITY_CREATION_RULES}
 ## Your Capabilities
 - List and identify appropriate supported source connections
 - Retrieve database schemas with tables, columns, and sample data
+- Search existing reusable datasets and retrieve their semantic intelligence
 - Generate source queries from natural language for supported sources
 - Use source-owned AI tools for configuration-based sources
 - Execute source queries and summarize results
@@ -1063,6 +1098,9 @@ ${ENTITY_CREATION_RULES}
 
 ## Workflow Guidelines
 1. When a user asks a data question:
+   - Search existing datasets first when the request refers to a business concept that may already be modelled in Chartbrew
+   - If a relevant dataset exists, retrieve its intelligence and reuse it instead of generating a duplicate dataset or query
+   - Use the current connection/schema/source-planning path when no existing dataset satisfies the request
    - If they request data generation, fake data, manual input, or unsupported sources: Use the Limitations response above. Do not proceed.
    - Check if they have supported source connections (${supportedSourceList})
    - If they request unsupported sources: Briefly state the currently supported AI sources are ${supportedSourceList}.
@@ -1674,17 +1712,6 @@ async function buildSemanticLayer(teamId) {
     ],
   });
 
-  const datasets = await db.Dataset.findAll({
-    where: {
-      team_id: teamId,
-    },
-    attributes: ["id", "name", "legend", "main_dr_id"],
-    include: [{
-      model: db.DataRequest,
-      attributes: ["id", "connection_id", "query", "conditions", "configuration", "variables", "transform"]
-    }]
-  });
-
   const chartCatalog = [{
     "line": {
       description: "A line chart can be used to show trends over time, can be used as an area chart by setting the fillColor",
@@ -1730,7 +1757,6 @@ async function buildSemanticLayer(teamId) {
     team,
     connections,
     projects,
-    datasets,
     chartCatalog,
   };
 

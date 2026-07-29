@@ -60,6 +60,71 @@ export const getDataset = createAsyncThunk(
   }
 );
 
+export const getDatasetIntelligence = createAsyncThunk(
+  "dataset/getDatasetIntelligence",
+  async ({ team_id, dataset_id }) => {
+    const token = getAuthToken();
+    const response = await fetch(
+      `${API_HOST}/team/${team_id}/datasets/${dataset_id}/intelligence`,
+      {
+        method: "GET",
+        headers: new Headers({
+          "Accept": "application/json",
+          "Authorization": `Bearer ${token}`,
+        }),
+      }
+    );
+    if (!response.ok) {
+      throw new Error("Could not load dataset meaning");
+    }
+    return response.json();
+  }
+);
+
+export const refreshDatasetIntelligence = createAsyncThunk(
+  "dataset/refreshDatasetIntelligence",
+  async ({ team_id, dataset_id }) => {
+    const token = getAuthToken();
+    const response = await fetch(
+      `${API_HOST}/team/${team_id}/datasets/${dataset_id}/intelligence/refresh`,
+      {
+        method: "POST",
+        headers: new Headers({
+          "Accept": "application/json",
+          "Authorization": `Bearer ${token}`,
+        }),
+      }
+    );
+    if (!response.ok) {
+      throw new Error("Could not refresh dataset meaning");
+    }
+    return response.json();
+  }
+);
+
+export const updateDatasetIntelligence = createAsyncThunk(
+  "dataset/updateDatasetIntelligence",
+  async ({ team_id, dataset_id, overrides }) => {
+    const token = getAuthToken();
+    const response = await fetch(
+      `${API_HOST}/team/${team_id}/datasets/${dataset_id}/intelligence/overrides`,
+      {
+        method: "PUT",
+        body: JSON.stringify(overrides),
+        headers: new Headers({
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        }),
+      }
+    );
+    if (!response.ok) {
+      throw new Error("Could not save dataset meaning");
+    }
+    return response.json();
+  }
+);
+
 export const saveNewDataset = createAsyncThunk(
   "dataset/saveNewDataset",
   async ({ team_id, data }) => {

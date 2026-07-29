@@ -1,4 +1,5 @@
 const db = require("../models/models");
+const { markChartDatasetIntelligenceStale } = require("../modules/datasetIntelligence/profileLifecycle");
 
 function findById(id) {
   return db.Alert.findOne({
@@ -9,8 +10,8 @@ function findById(id) {
   });
 }
 
-function create(data) {
-  return db.Alert.create(data)
+async function create(data) {
+  const alert = await db.Alert.create(data)
     .then((createdAlert) => {
       return findById(createdAlert.id);
     })
@@ -40,16 +41,13 @@ function create(data) {
       }
 
       return findById(alert.id);
-    })
-    .catch((err) => {
-      return new Promise((resolve, reject) => {
-        reject(err);
-      });
     });
+  await markChartDatasetIntelligenceStale(alert.chart_id);
+  return alert;
 }
 
-function update(id, data) {
-  return db.Alert.update(data, {
+async function update(id, data) {
+  const alert = await db.Alert.update(data, {
     where: {
       id,
     },
@@ -83,14 +81,19 @@ function update(id, data) {
       }
       return findById(id);
     });
+  await markChartDatasetIntelligenceStale(alert.chart_id);
+  return alert;
 }
 
-function remove(id) {
-  return db.Alert.destroy({
+async function remove(id) {
+  const alert = await findById(id);
+  const removed = await db.Alert.destroy({
     where: {
       id,
     },
   });
+  await markChartDatasetIntelligenceStale(alert?.chart_id);
+  return removed;
 }
 
 function getByChartId(chartId) {

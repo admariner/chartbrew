@@ -1,5 +1,7 @@
 const listConnections = require("./listConnections");
 const getSchema = require("./getSchema");
+const searchDatasets = require("./searchDatasets");
+const getDatasetIntelligence = require("./getDatasetIntelligence");
 const generateQuery = require("./generateQuery");
 const validateQuery = require("./validateQuery");
 const runQuery = require("./runQuery");
@@ -38,6 +40,8 @@ const {
 module.exports = {
   listConnections,
   getSchema,
+  searchDatasets,
+  getDatasetIntelligence,
   generateQuery,
   validateQuery,
   runQuery,

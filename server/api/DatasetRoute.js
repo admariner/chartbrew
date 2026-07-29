@@ -1,10 +1,12 @@
 const DatasetController = require("../controllers/DatasetController");
+const DatasetIntelligenceController = require("../controllers/DatasetIntelligenceController");
 const TeamController = require("../controllers/TeamController");
 const verifyToken = require("../modules/verifyToken");
 const accessControl = require("../modules/accessControl");
 
 module.exports = (app) => {
   const datasetController = new DatasetController();
+  const datasetIntelligenceController = new DatasetIntelligenceController();
   const teamController = new TeamController();
   const root = "/team/:team_id/datasets";
   const hasProjectAccess = (projectIds = [], projects = []) => {
@@ -78,6 +80,66 @@ module.exports = (app) => {
       return res.status(400).send((error && error.message) || error);
     }
   };
+
+  /*
+  ** Route to search dataset intelligence
+  */
+  app.get(`${root}/intelligence/search`, verifyToken, checkPermissions("readOwn"), async (req, res) => {
+    try {
+      const result = await datasetIntelligenceController.search({
+        teamId: req.params.team_id,
+        query: req.query.query,
+        projectId: req.query.project_id,
+        allowedProjectIds: req.user.projects,
+        limit: req.query.limit,
+      });
+      return res.status(200).send(result);
+    } catch (error) {
+      return res.status(400).send(error.message || error);
+    }
+  });
+  // ----------------------------------------------------
+
+  /*
+  ** Route to get dataset intelligence
+  */
+  app.get(`${root}/:dataset_id/intelligence`, verifyToken, checkPermissions("readOwn"), ensureDatasetBelongsToTeam, async (req, res) => {
+    try {
+      const result = await datasetIntelligenceController.get({
+        datasetId: req.params.dataset_id,
+        teamId: req.params.team_id,
+      });
+      return res.status(200).send(result);
+    } catch (error) {
+      return res.status(400).send(error.message || error);
+    }
+  });
+
+  app.post(`${root}/:dataset_id/intelligence/refresh`, verifyToken, checkPermissions("updateAny"), ensureDatasetBelongsToTeam, async (req, res) => {
+    try {
+      const result = await datasetIntelligenceController.refresh({
+        datasetId: req.params.dataset_id,
+        teamId: req.params.team_id,
+      });
+      return res.status(200).send(result);
+    } catch (error) {
+      return res.status(400).send(error.message || error);
+    }
+  });
+
+  app.put(`${root}/:dataset_id/intelligence/overrides`, verifyToken, checkPermissions("updateAny"), ensureDatasetBelongsToTeam, async (req, res) => {
+    try {
+      const result = await datasetIntelligenceController.updateOverrides({
+        datasetId: req.params.dataset_id,
+        teamId: req.params.team_id,
+        overrides: req.body,
+      });
+      return res.status(200).send(result);
+    } catch (error) {
+      return res.status(400).send(error.message || error);
+    }
+  });
+  // ----------------------------------------------------
 
   /*
   ** Route to get all datasets

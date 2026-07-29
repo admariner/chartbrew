@@ -18,6 +18,7 @@
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "db:migrate": "cd models && npx sequelize-cli db:migrate",
+    "intelligence:backfill": "node scripts/backfillDatasetIntelligence.js",
     "viz:migration-audit": "node scripts/auditVisualizationMigration.js",
     "viz:corpus-audit": "node scripts/auditVisualizationCorpus.js",
     "precommit": "lint-staged",
