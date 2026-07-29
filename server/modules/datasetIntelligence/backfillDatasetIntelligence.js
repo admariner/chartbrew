@@ -4,8 +4,15 @@ const db = require("../../models/models");
 const { getEnvIntelligencePolicy } = require("../intelligence/envPolicyProvider");
 const { profileDataset } = require("./profileDataset");
 
-async function backfillDatasetIntelligence({ teamId, limit } = {}) {
-  const normalizedTeamId = teamId ? Number(teamId) : null;
+async function backfillDatasetIntelligence(
+  { teamId, limit } = {},
+  runProfileDataset = profileDataset
+) {
+  const hasTeamId = teamId !== undefined && teamId !== null && `${teamId}`.trim() !== "";
+  const normalizedTeamId = hasTeamId ? Number(teamId) : null;
+  if (hasTeamId && (!Number.isInteger(normalizedTeamId) || normalizedTeamId <= 0)) {
+    throw new Error("teamId must be a positive integer");
+  }
   const fallbackPolicy = getEnvIntelligencePolicy().datasetIntelligence;
   const batchSize = Math.min(
     Math.max(Number.parseInt(limit, 10) || fallbackPolicy.backfillBatchSize, 1),
@@ -40,9 +47,10 @@ async function backfillDatasetIntelligence({ teamId, limit } = {}) {
 
   const results = await Promise.all(datasets.map(async (dataset) => {
     try {
-      return await profileDataset({
+      return await runProfileDataset({
         datasetId: dataset.id,
         teamId: dataset.team_id,
+        generationReason: "backfill",
       });
     } catch (error) {
       return { status: "failed" };

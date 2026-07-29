@@ -17,6 +17,9 @@ const {
   markDatasetIntelligenceStale,
 } = require("../../modules/datasetIntelligence/profileLifecycle.js");
 const {
+  backfillDatasetIntelligence,
+} = require("../../modules/datasetIntelligence/backfillDatasetIntelligence.js");
+const {
   profileDataset,
 } = require("../../modules/datasetIntelligence/profileDataset.js");
 const getDatasetIntelligence = require(
@@ -129,6 +132,35 @@ async function seedTeam(models, role = "teamOwner") {
   };
 }
 
+async function createDataset(models, team, project, values = {}) {
+  return models.Dataset.create({
+    team_id: team.id,
+    project_ids: [project.id],
+    draft: false,
+    name: "Dataset intelligence test",
+    fieldsSchema: {
+      "root[].amount": "number",
+      "root[].country": "string",
+    },
+    ...values,
+  });
+}
+
+async function createIntelligence(models, dataset, team, values = {}) {
+  return models.DatasetIntelligence.create({
+    dataset_id: dataset.id,
+    team_id: team.id,
+    version: 1,
+    status: "ready",
+    fingerprint: `profile-${dataset.id}`,
+    profile: buildProfile(),
+    overrides: {},
+    generated_at: new Date(),
+    expires_at: new Date(Date.now() + 60 * 60 * 1000),
+    ...values,
+  });
+}
+
 describe("Dataset Intelligence routes and persistence", () => {
   let app;
   let models;
@@ -214,6 +246,66 @@ describe("Dataset Intelligence routes and persistence", () => {
       .expect(403);
   });
 
+  it("allows an owner to refresh a current profile", async () => {
+    const owner = await seedTeam(models);
+    const previousGeneratedAt = new Date("2026-01-01T00:00:00.000Z");
+    await owner.intelligence.update({ generated_at: previousGeneratedAt });
+
+    const response = await request(app)
+      .post(`/team/${owner.team.id}/datasets/${owner.dataset.id}/intelligence/refresh`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .expect(200);
+
+    expect(response.body.status).toBe("ready");
+    expect(new Date(response.body.generated_at).getTime()).toBeGreaterThan(
+      previousGeneratedAt.getTime()
+    );
+  });
+
+  it("persists owner overrides and returns the merged profile", async () => {
+    const owner = await seedTeam(models);
+    const overrides = {
+      dataset: {
+        summary: "Recognised completed-order revenue",
+        grain: "One row per completed order",
+      },
+      fields: {
+        "root[].amount": {
+          role: "measure",
+          defaultAggregation: "avg",
+        },
+      },
+      monitoring: {},
+    };
+
+    const response = await request(app)
+      .put(`/team/${owner.team.id}/datasets/${owner.dataset.id}/intelligence/overrides`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send(overrides)
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      status: "ready",
+      profile: {
+        dataset: {
+          summary: overrides.dataset.summary,
+          grain: overrides.dataset.grain,
+        },
+        fields: {
+          "root[].amount": {
+            role: "measure",
+            defaultAggregation: "avg",
+          },
+        },
+      },
+      overrides,
+    });
+    const record = await models.DatasetIntelligence.findOne({
+      where: { dataset_id: owner.dataset.id },
+    });
+    expect(record.overrides).toEqual(overrides);
+  });
+
   it("encrypts profile data, enforces uniqueness, and cascades on dataset deletion", async () => {
     const owner = await seedTeam(models);
     const storedProfile = owner.intelligence.getDataValue("profile");
@@ -290,6 +382,65 @@ describe("Dataset Intelligence routes and persistence", () => {
       status: "disabled",
       profile: null,
     });
+  });
+
+  it("backfills only eligible datasets in the requested team", async () => {
+    const owner = await seedTeam(models);
+    const otherOwner = await seedTeam(models);
+    const missing = await createDataset(models, owner.team, owner.project, {
+      name: "Missing intelligence",
+    });
+    const stale = await createDataset(models, owner.team, owner.project, {
+      name: "Stale intelligence",
+    });
+    const failed = await createDataset(models, owner.team, owner.project, {
+      name: "Failed intelligence",
+    });
+    const pending = await createDataset(models, owner.team, owner.project, {
+      name: "Pending intelligence",
+    });
+    const expired = await createDataset(models, owner.team, owner.project, {
+      name: "Expired intelligence",
+    });
+    const draft = await createDataset(models, owner.team, owner.project, {
+      name: "Draft dataset",
+      draft: true,
+    });
+    const otherTeamMissing = await createDataset(
+      models,
+      otherOwner.team,
+      otherOwner.project,
+      { name: "Other team missing intelligence" }
+    );
+    await createIntelligence(models, stale, owner.team, { status: "stale" });
+    await createIntelligence(models, failed, owner.team, { status: "failed" });
+    await createIntelligence(models, pending, owner.team, { status: "pending" });
+    await createIntelligence(models, expired, owner.team, {
+      expires_at: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    await expect(backfillDatasetIntelligence({
+      teamId: owner.team.id,
+      limit: 10,
+    })).resolves.toEqual({
+      attempted: 5,
+      ready: 5,
+      disabled: 0,
+      failed: 0,
+    });
+
+    const eligibleIds = [missing.id, stale.id, failed.id, pending.id, expired.id];
+    expect(await models.DatasetIntelligence.count({
+      where: {
+        dataset_id: eligibleIds,
+        status: "ready",
+      },
+    })).toBe(eligibleIds.length);
+    expect(await models.DatasetIntelligence.count({
+      where: { dataset_id: [draft.id, otherTeamMissing.id] },
+    })).toBe(0);
+    await owner.intelligence.reload();
+    expect(owner.intelligence.status).toBe("ready");
   });
 
   it("does not expose intelligence through public chart payloads", async () => {

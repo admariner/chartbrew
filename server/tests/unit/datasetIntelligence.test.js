@@ -21,6 +21,9 @@ const {
   collectDatasetUsage,
 } = require("../../modules/datasetIntelligence/buildProfileEvidence");
 const {
+  backfillDatasetIntelligence,
+} = require("../../modules/datasetIntelligence/backfillDatasetIntelligence");
+const {
   inferFieldSemantics,
   summarizeProfileData,
   summarizeSampleData,
@@ -137,6 +140,7 @@ const sampleRows = [{
 afterEach(() => {
   resetIntelligencePolicyProvider();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("intelligence policy", () => {
@@ -568,6 +572,69 @@ describe("dataset intelligence search", () => {
     expect(result.score).toBeGreaterThan(0);
     expect(result.reasons).toContain("existing_chart");
     expect(result.reasons).toContain("field");
+  });
+});
+
+describe("dataset intelligence backfill", () => {
+  it("rejects an invalid team id instead of widening the backfill scope", async () => {
+    const findAll = vi.spyOn(db.Dataset, "findAll");
+
+    await expect(backfillDatasetIntelligence({
+      teamId: "not-a-team",
+    })).rejects.toThrow("teamId must be a positive integer");
+    expect(findAll).not.toHaveBeenCalled();
+  });
+
+  it("scopes the query and caps the requested batch size", async () => {
+    vi.stubEnv("CB_DATASET_INTELLIGENCE_BACKFILL_BATCH_SIZE", "2");
+    const findAll = vi.spyOn(db.Dataset, "findAll").mockResolvedValue([]);
+
+    await expect(backfillDatasetIntelligence({
+      teamId: "7",
+      limit: "100",
+    })).resolves.toEqual({
+      attempted: 0,
+      ready: 0,
+      disabled: 0,
+      failed: 0,
+    });
+    expect(findAll).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        draft: false,
+        team_id: 7,
+      }),
+      limit: 2,
+      order: [["updatedAt", "DESC"]],
+    }));
+  });
+
+  it("continues after failures and reports every backfill outcome", async () => {
+    vi.spyOn(db.Dataset, "findAll").mockResolvedValue([
+      { id: 1, team_id: 7 },
+      { id: 2, team_id: 7 },
+      { id: 3, team_id: 7 },
+      { id: 4, team_id: 7 },
+    ]);
+    const runProfileDataset = vi.fn()
+      .mockResolvedValueOnce({ status: "ready" })
+      .mockResolvedValueOnce({ status: "disabled" })
+      .mockResolvedValueOnce({ status: "failed" })
+      .mockRejectedValueOnce(new Error("profile unavailable"));
+
+    await expect(backfillDatasetIntelligence({
+      teamId: 7,
+      limit: 4,
+    }, runProfileDataset)).resolves.toEqual({
+      attempted: 4,
+      ready: 1,
+      disabled: 1,
+      failed: 2,
+    });
+    expect(runProfileDataset).toHaveBeenCalledTimes(4);
+    expect(runProfileDataset).toHaveBeenCalledWith(expect.objectContaining({
+      teamId: 7,
+      generationReason: "backfill",
+    }));
   });
 });
 
