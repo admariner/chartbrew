@@ -4,6 +4,14 @@ import toast from "react-hot-toast";
 import {
   Button, Chip, Label, ListBox, Modal, Select, TextArea, TextField,
 } from "@heroui/react";
+import {
+  LuCalendarClock,
+  LuCircleHelp,
+  LuFingerprint,
+  LuSigma,
+  LuTags,
+  LuWandSparkles,
+} from "react-icons/lu";
 
 import {
   getDatasetIntelligence,
@@ -19,11 +27,11 @@ const EMPTY_OVERRIDES = {
 };
 
 const FIELD_ROLES = [
-  ["measure", "Measure"],
-  ["dimension", "Dimension"],
-  ["time", "Time"],
-  ["identifier", "Identifier"],
-  ["unknown", "Unknown"],
+  { value: "measure", label: "Measure", icon: LuSigma },
+  { value: "dimension", label: "Dimension", icon: LuTags },
+  { value: "time", label: "Time", icon: LuCalendarClock },
+  { value: "identifier", label: "Identifier", icon: LuFingerprint },
+  { value: "unknown", label: "Unknown", icon: LuCircleHelp },
 ];
 
 const AGGREGATIONS = [
@@ -50,6 +58,15 @@ function copyOverrides(overrides = EMPTY_OVERRIDES) {
 
 function displayFieldPath(path) {
   return path.replace(/^root\[\]\.?/, "");
+}
+
+function RoleOption({ icon: Icon, label }) {
+  return (
+    <div className="flex items-center gap-2">
+      <Icon size={16} className="shrink-0 text-default-500" aria-hidden />
+      <span>{label}</span>
+    </div>
+  );
 }
 
 function DatasetIntelligenceModal({
@@ -198,12 +215,12 @@ function DatasetIntelligenceModal({
 
   return (
     <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
-      <Modal.Container size="4xl">
+      <Modal.Container size="3xl">
         <Modal.Dialog>
           <Modal.Header>
             <Modal.Heading>Dataset meaning</Modal.Heading>
-            <p className="text-sm leading-5 text-muted">
-              Describe what this dataset contains and what each row represents.
+            <p className="text-sm text-muted">
+              Help Chartbrew understand and reuse this dataset accurately through agentic operations.
             </p>
           </Modal.Header>
           <Modal.Body>
@@ -337,12 +354,19 @@ function DatasetIntelligenceModal({
                             >
                               <ListBox>
                                 <ListBox.Item id="automatic" textValue={`Automatic (${field.role})`}>
-                                  Automatic ({field.role})
+                                  <RoleOption
+                                    icon={LuWandSparkles}
+                                    label={`Automatic (${field.role})`}
+                                  />
                                   <ListBox.ItemIndicator />
                                 </ListBox.Item>
-                                {FIELD_ROLES.map(([value, label]) => (
-                                  <ListBox.Item key={value} id={value} textValue={label}>
-                                    {label}
+                                {FIELD_ROLES.map((role) => (
+                                  <ListBox.Item
+                                    key={role.value}
+                                    id={role.value}
+                                    textValue={role.label}
+                                  >
+                                    <RoleOption icon={role.icon} label={role.label} />
                                     <ListBox.ItemIndicator />
                                   </ListBox.Item>
                                 ))}
