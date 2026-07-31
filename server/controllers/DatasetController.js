@@ -6,6 +6,7 @@ const DataRequestController = require("./DataRequestController");
 const { applyTransformation } = require("../modules/dataTransformations");
 const { applySourceVariables } = require("../sources/applySourceVariables");
 const { runSourceDataRequest } = require("../sources/runSourceDataRequest");
+const { discoverDatasetFieldsSchema } = require("../modules/datasetSchema");
 const {
   createHash,
   completeRun,
@@ -753,6 +754,17 @@ class DatasetController {
           // Apply transformation if enabled
           if (mainDr.transform && mainDr.transform.enabled) {
             data = applyTransformation(data, mainDr.transform);
+          }
+
+          if (noSource !== true && !runtimeContext?.hasRuntimeFilters) {
+            const fieldsSchema = discoverDatasetFieldsSchema(data);
+            if (!_.isEqual(gDataset.fieldsSchema || {}, fieldsSchema)) {
+              await gDataset.update({ fieldsSchema });
+              await markDatasetIntelligenceStale(
+                gDataset.id,
+                gDataset.team_id || teamId || team_id
+              );
+            }
           }
 
           if (sourceCacheParams) {

@@ -665,7 +665,6 @@ function ChartDatasetConfig(props) {
             cdc={cdc}
             dataset={dataset}
             chart={chart}
-            teamId={team?.id}
             onUpdateCdc={_onUpdateCdc}
             onUpdateVisualization={_onUpdateVisualization}
             onEditDataset={_onEditDataset}

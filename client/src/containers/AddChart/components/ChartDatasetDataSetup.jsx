@@ -30,10 +30,7 @@ import {
 } from "react-icons/lu";
 
 import DatasetFilters from "../../../components/DatasetFilters";
-import {
-  getDatasetFieldOptionsFromResponse,
-  getDatasetFieldOptionsFromSchema,
-} from "../../../modules/getDatasetFieldOptions";
+import { getDatasetFieldOptionsFromSchema } from "../../../modules/getDatasetFieldOptions";
 import {
   AGGREGATIONS,
   addVisualizationLayer,
@@ -50,7 +47,6 @@ import {
   updateLayerRowPath,
   updateLayerSeriesOptions,
 } from "../../../modules/visualization";
-import { runRequest as runDatasetRequest, updateDataset } from "../../../slices/dataset";
 import { repairChartVisualization } from "../../../slices/chart";
 import canAccess from "../../../config/canAccess";
 import { selectUser } from "../../../slices/user";
@@ -287,7 +283,6 @@ function FieldPicker({
   isClearable,
   description,
   fieldOptions,
-  isPending,
   label,
   onChange,
   placeholder,
@@ -300,7 +295,6 @@ function FieldPicker({
       placeholder={placeholder}
       value={value || null}
       onChange={onChange}
-      isPending={isPending}
       selectionMode="single"
       variant="secondary"
       aria-label={label}
@@ -347,7 +341,6 @@ FieldPicker.propTypes = {
   description: PropTypes.string.isRequired,
   fieldOptions: PropTypes.array.isRequired,
   isClearable: PropTypes.bool,
-  isPending: PropTypes.bool.isRequired,
   label: PropTypes.string.isRequired,
   onChange: PropTypes.func.isRequired,
   placeholder: PropTypes.string.isRequired,
@@ -363,29 +356,21 @@ function ChartDatasetDataSetup({
   cdc,
   dataset,
   chart,
-  teamId,
   onUpdateCdc,
   onUpdateVisualization,
   onEditDataset,
 }) {
   const dispatch = useDispatch();
   const params = useParams();
-  const datasetResponse = useSelector((state) => state.dataset.responses
-    .find((response) => response.dataset_id === dataset?.id)?.data);
-  const [loadingFields, setLoadingFields] = useState(false);
   const [repairingVisualization, setRepairingVisualization] = useState(false);
   const [selectedLayerId, setSelectedLayerId] = useState(null);
   const user = useSelector(selectUser);
   const team = useSelector(selectTeam);
-
-  const fieldData = useMemo(() => {
-    if (datasetResponse) return getDatasetFieldOptionsFromResponse(datasetResponse);
-    return {
-      fieldOptions: getDatasetFieldOptionsFromSchema(dataset?.fieldsSchema || {}),
-      fieldsSchema: dataset?.fieldsSchema || {},
-    };
-  }, [dataset?.fieldsSchema, datasetResponse]);
-  const fieldOptions = fieldData.fieldOptions;
+  const fieldsSchema = cdc.Dataset?.fieldsSchema || dataset?.fieldsSchema || {};
+  const fieldOptions = useMemo(
+    () => getDatasetFieldOptionsFromSchema(fieldsSchema),
+    [fieldsSchema]
+  );
   const dateFieldOptions = fieldOptions.filter((field) => field.type === "date");
   const bindingLayers = (chart.visualization?.layers || []).filter((layer) => {
     return `${layer.bindingId}` === `${cdc.id}`;
@@ -423,34 +408,6 @@ function ChartDatasetDataSetup({
     type: "array",
     label: { color: "default", content: "root" },
   }, ...fieldOptions.filter((field) => field.type === "array")];
-
-  const _loadFields = async () => {
-    if (!dataset?.id || !teamId || loadingFields) return;
-    setLoadingFields(true);
-    try {
-      const response = await dispatch(runDatasetRequest({
-        team_id: teamId,
-        dataset_id: dataset.id,
-        getCache: true,
-      })).unwrap();
-      const nextFieldData = getDatasetFieldOptionsFromResponse(response?.data || response);
-      if (Object.keys(nextFieldData.fieldsSchema).length > 0) {
-        dispatch(updateDataset({
-          team_id: teamId,
-          dataset_id: dataset.id,
-          data: { fieldsSchema: nextFieldData.fieldsSchema },
-        }));
-      }
-      if (!cdc.dateField) {
-        const suggestedDateField = getPreferredDateField(nextFieldData.fieldOptions);
-        if (suggestedDateField) onUpdateCdc({ dateField: suggestedDateField });
-      }
-    } catch (error) {
-      toast.error("Could not load dataset fields. Please check the dataset query.");
-    } finally {
-      setLoadingFields(false);
-    }
-  };
 
   const _fieldOption = (value) => fieldOptions.find((field) => field.value === value) || null;
   const _repairVisualization = async () => {
@@ -559,19 +516,7 @@ function ChartDatasetDataSetup({
 
             {fieldOptions.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-divider p-4 text-center">
-                <div className="text-sm font-medium">Load a data sample to choose fields</div>
-                <div className="mt-1 text-xs text-foreground-500">
-                  Chartbrew will use cached data when it is available.
-                </div>
-                <Button
-                  className="mt-3"
-                  size="sm"
-                  variant="secondary"
-                  isPending={loadingFields}
-                  onPress={_loadFields}
-                >
-                  Load fields
-                </Button>
+                <div className="text-sm font-medium">Refresh the chart to discover fields</div>
               </div>
             ) : (
               <div className="flex flex-col gap-4">
@@ -581,7 +526,6 @@ function ChartDatasetDataSetup({
                     placeholder="Select a row collection"
                     description="The array that contains the table rows."
                     fieldOptions={collectionOptions}
-                    isPending={loadingFields}
                     value={selectedLayer.rowPath}
                     onChange={(value) => {
                       const nextVisualization = updateLayerRowPath(
@@ -600,7 +544,6 @@ function ChartDatasetDataSetup({
                     placeholder="Select a grouping field"
                     description="Values are grouped into one point or bar per category."
                     fieldOptions={fieldOptions.filter((field) => field.type !== "array")}
-                    isPending={loadingFields}
                     value={dimensionField}
                     onChange={(value) => _updateField("dimension", value)}
                   />
@@ -613,7 +556,6 @@ function ChartDatasetDataSetup({
                       placeholder="Select a value field"
                       description="The value to measure, count, or aggregate."
                       fieldOptions={fieldOptions.filter((field) => field.type !== "array")}
-                      isPending={loadingFields}
                       value={valueField}
                       onChange={(value) => _updateField("value", value)}
                     />
@@ -690,7 +632,6 @@ function ChartDatasetDataSetup({
                       description="Creates one series for every unique value without another dataset."
                       fieldOptions={fieldOptions.filter((field) => field.type !== "array")}
                       isClearable
-                      isPending={loadingFields}
                       value={breakdownField}
                       onChange={(value) => _updateField("breakdown", value)}
                     />
@@ -880,7 +821,6 @@ function ChartDatasetDataSetup({
               placeholder="Select a date field"
               description="Used by Chart Settings and dashboard date filters."
               fieldOptions={dateFieldOptions}
-              isPending={loadingFields}
               value={dateField}
               onChange={(value) => onUpdateCdc({ dateField: value })}
             />
@@ -900,14 +840,9 @@ ChartDatasetDataSetup.propTypes = {
   cdc: PropTypes.object.isRequired,
   dataset: PropTypes.object.isRequired,
   chart: PropTypes.object.isRequired,
-  teamId: PropTypes.number,
   onUpdateCdc: PropTypes.func.isRequired,
   onUpdateVisualization: PropTypes.func.isRequired,
   onEditDataset: PropTypes.func.isRequired,
-};
-
-ChartDatasetDataSetup.defaultProps = {
-  teamId: null,
 };
 
 export default ChartDatasetDataSetup;
