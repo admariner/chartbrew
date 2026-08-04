@@ -54,4 +54,30 @@ describe("TeamController role security", () => {
     expect(getTeamRoleSpy).toHaveBeenCalledTimes(2);
     expect(result.role).toBe("teamAdmin");
   });
+
+  it("only writes supported team role fields", async () => {
+    vi.spyOn(controller, "getTeamRole")
+      .mockResolvedValueOnce({ team_id: 7, user_id: 42, role: "projectEditor" })
+      .mockResolvedValueOnce({ team_id: 7, user_id: 42, role: "projectAdmin" });
+    const updateSpy = vi.spyOn(db.TeamRole, "update").mockResolvedValue([1]);
+
+    await controller.updateTeamRole(7, 42, {
+      id: 99,
+      user_id: 84,
+      team_id: 12,
+      role: "projectAdmin",
+      projects: [3],
+      canExport: true,
+      createdAt: "2026-08-04T00:00:00.000Z",
+    });
+
+    expect(updateSpy).toHaveBeenCalledWith(
+      {
+        role: "projectAdmin",
+        projects: [3],
+        canExport: true,
+      },
+      { where: { team_id: 7, user_id: 42 } }
+    );
+  });
 });

@@ -16,6 +16,7 @@ const TEAM_ROLES = new Set([
   "projectEditor",
   "projectViewer",
 ]);
+const TEAM_ROLE_UPDATE_FIELDS = new Set(["role", "projects", "canExport"]);
 
 class TeamController {
   constructor() {
@@ -276,22 +277,26 @@ class TeamController {
   }
 
   updateTeamRole(teamId, userId, data) {
+    const updateData = Object.fromEntries(
+      Object.entries(data).filter(([field]) => TEAM_ROLE_UPDATE_FIELDS.has(field))
+    );
+
     return this.getTeamRole(teamId, userId)
       .then((currentTeamRole) => {
         if (!currentTeamRole) {
           throw new Error(404);
         }
 
-        if (data.role) {
-          if (!TEAM_ROLES.has(data.role)) {
+        if (updateData.role) {
+          if (!TEAM_ROLES.has(updateData.role)) {
             throw new Error("Invalid team role");
           }
-          if (currentTeamRole.role === "teamOwner" || data.role === "teamOwner") {
+          if (currentTeamRole.role === "teamOwner" || updateData.role === "teamOwner") {
             throw new Error("Team ownership can only be changed through an ownership transfer");
           }
         }
 
-        return db.TeamRole.update(data, { where: { "team_id": teamId, "user_id": userId } });
+        return db.TeamRole.update(updateData, { where: { "team_id": teamId, "user_id": userId } });
       })
       .then(() => {
         return this.getTeamRole(teamId, userId);
