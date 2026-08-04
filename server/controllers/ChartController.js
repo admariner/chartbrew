@@ -1097,8 +1097,18 @@ class ChartController {
       });
   }
 
-  testQuery(chart) {
-    return this.connectionController.findById(chart.connection_id)
+  findConnectionForProject(connectionId, projectId) {
+    return db.Project.findByPk(projectId, { attributes: ["team_id"] })
+      .then((project) => {
+        if (!project) {
+          throw new Error(404);
+        }
+        return this.connectionController.findByIdAndTeam(connectionId, project.team_id);
+      });
+  }
+
+  testQuery(chart, projectId) {
+    return this.findConnectionForProject(chart.connection_id, projectId)
       .then((connection) => {
         const source = findSourceForConnection(connection);
         if (source?.backend?.runChartQuery) {
@@ -1120,7 +1130,7 @@ class ChartController {
           return new Promise((resolve) => resolve(cache));
         }
 
-        return this.connectionController.findById(chart.connection_id);
+        return this.findConnectionForProject(chart.connection_id, projectId);
       })
       .then((connection) => {
         if (noSource === "true") {
