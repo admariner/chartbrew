@@ -55,6 +55,22 @@ describe("outboundTargetPolicy", () => {
     });
   });
 
+  it("blocks IPv4-mapped IPv6 private targets", async () => {
+    await expect(validateOutboundUrl("http://[::ffff:127.0.0.1]:4019"))
+      .rejects.toMatchObject({
+        code: "SSRF_BLOCKED",
+        reason: "private_network",
+      });
+  });
+
+  it("blocks IPv4-mapped IPv6 metadata targets", async () => {
+    await expect(validateOutboundUrl("http://[::ffff:169.254.169.254]/latest/meta-data"))
+      .rejects.toMatchObject({
+        code: "SSRF_BLOCKED",
+        reason: "metadata_endpoint",
+      });
+  });
+
   it("allows private literal IP targets when global policy allows them", async () => {
     process.env.CB_ALLOW_PRIVATE_NETWORK_CALLS = "true";
     const result = await validateOutboundUrl("http://10.0.0.12");
