@@ -5,6 +5,40 @@ const BLOCKED_MEMBER_NAMES = new Set([
   "__proto__",
   "prototype",
 ]);
+const BLOCKED_QUERY_KEYS = new Set([
+  "$accumulator",
+  "$function",
+  "$merge",
+  "$out",
+  "$where",
+]);
+const READ_ONLY_METHODS = new Set([
+  "aggregate",
+  "allowDiskUse",
+  "batchSize",
+  "collation",
+  "collection",
+  "comment",
+  "count",
+  "countDocuments",
+  "distinct",
+  "estimatedDocumentCount",
+  "find",
+  "findOne",
+  "hint",
+  "indexExists",
+  "indexInformation",
+  "indexes",
+  "limit",
+  "listIndexes",
+  "maxAwaitTimeMS",
+  "maxTimeMS",
+  "project",
+  "readConcern",
+  "readPreference",
+  "skip",
+  "sort",
+]);
 
 const ALLOWED_HELPER_CALLS = new Set(["ObjectId", "Date"]);
 const ALLOWED_HELPER_CONSTRUCTORS = new Set(["Date", "ObjectId"]);
@@ -47,6 +81,12 @@ function validateDataExpression(node) {
         }
         if (property.key.type !== "Identifier" && property.key.type !== "Literal") {
           return invalid("Invalid object property key");
+        }
+        const propertyName = property.key.type === "Identifier"
+          ? property.key.name
+          : String(property.key.value);
+        if (BLOCKED_QUERY_KEYS.has(propertyName)) {
+          return invalid(`Blocked MongoDB query operator: "${propertyName}"`);
         }
 
         const result = validateDataExpression(property.value);
@@ -133,6 +173,10 @@ function validateMongoCallChain(node) {
 
   if (BLOCKED_MEMBER_NAMES.has(node.callee.property.name)) {
     return invalid(`Blocked member access: "${node.callee.property.name}"`);
+  }
+
+  if (!READ_ONLY_METHODS.has(node.callee.property.name)) {
+    return invalid(`MongoDB method is not read-only: "${node.callee.property.name}"`);
   }
 
   if (node.callee.object.type === "Identifier") {
