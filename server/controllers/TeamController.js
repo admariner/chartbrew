@@ -9,6 +9,14 @@ const UserController = require("./UserController");
 
 const settings = process.env.NODE_ENV === "production" ? require("../settings") : require("../settings-dev");
 
+const TEAM_ROLES = new Set([
+  "teamOwner",
+  "teamAdmin",
+  "projectAdmin",
+  "projectEditor",
+  "projectViewer",
+]);
+
 class TeamController {
   constructor() {
     this.userController = new UserController();
@@ -268,7 +276,23 @@ class TeamController {
   }
 
   updateTeamRole(teamId, userId, data) {
-    return db.TeamRole.update(data, { where: { "team_id": teamId, "user_id": userId } })
+    return this.getTeamRole(teamId, userId)
+      .then((currentTeamRole) => {
+        if (!currentTeamRole) {
+          throw new Error(404);
+        }
+
+        if (data.role) {
+          if (!TEAM_ROLES.has(data.role)) {
+            throw new Error("Invalid team role");
+          }
+          if (currentTeamRole.role === "teamOwner" || data.role === "teamOwner") {
+            throw new Error("Team ownership can only be changed through an ownership transfer");
+          }
+        }
+
+        return db.TeamRole.update(data, { where: { "team_id": teamId, "user_id": userId } });
+      })
       .then(() => {
         return this.getTeamRole(teamId, userId);
       })
