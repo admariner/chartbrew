@@ -3,7 +3,6 @@ const crypto = require("crypto");
 
 const slackClientId = process.env.VITE_APP_SLACK_CLIENT_ID;
 const slackClientSecret = process.env.CB_SLACK_CLIENT_SECRET;
-const slackSigningSecret = process.env.CB_SLACK_SIGNING_SECRET;
 
 /**
  * Verify Slack request signature
@@ -12,10 +11,11 @@ const slackSigningSecret = process.env.CB_SLACK_SIGNING_SECRET;
  * This is a simplified version that works with parsed body
  */
 function verifySignature(req) {
+  const slackSigningSecret = process.env.CB_SLACK_SIGNING_SECRET;
   if (!slackSigningSecret) {
     // oxlint-disable-next-line no-console
-    console.warn("SLACK_SIGNING_SECRET not configured, skipping signature verification");
-    return true;
+    console.warn("CB_SLACK_SIGNING_SECRET is not configured; rejecting Slack request");
+    return false;
   }
 
   const timestamp = req.headers["x-slack-request-timestamp"];
@@ -24,13 +24,18 @@ function verifySignature(req) {
   if (!timestamp || !signature) {
     // oxlint-disable-next-line no-console
     console.warn("Missing Slack signature headers");
-    // Allow request to proceed for now (can be strict later)
-    return true;
+    return false;
   }
 
   // Check if request is too old (replay attack protection)
+  const parsedTimestamp = Number(timestamp);
+  if (!Number.isInteger(parsedTimestamp)) {
+    // oxlint-disable-next-line no-console
+    console.warn("Invalid Slack request timestamp");
+    return false;
+  }
   const currentTime = Math.floor(Date.now() / 1000);
-  if (Math.abs(currentTime - parseInt(timestamp, 10)) > 300) {
+  if (Math.abs(currentTime - parsedTimestamp) > 300) {
     // oxlint-disable-next-line no-console
     console.warn("Slack request timestamp too old");
     return false;
@@ -74,33 +79,13 @@ function verifySignature(req) {
     );
     if (!isValid) {
       // oxlint-disable-next-line no-console
-      console.warn("Invalid Slack signature - this may be due to body parsing");
-      // oxlint-disable-next-line no-console
-      console.warn("Expected:", signature);
-      // oxlint-disable-next-line no-console
-      console.warn("Computed:", mySignature);
-
-      // In development, allow interactive payloads and events to proceed for testing
-      // These are harder to verify without raw body
-      if (process.env.NODE_ENV !== "production") {
-        if (req.body && req.body.payload) {
-          // oxlint-disable-next-line no-console
-          console.warn("Allowing interactive payload in development mode");
-          return true;
-        }
-        if (req.body && (req.body.type === "event_callback" || req.body.event)) {
-          // oxlint-disable-next-line no-console
-          console.warn("Allowing event payload in development mode");
-          return true;
-        }
-      }
+      console.warn("Invalid Slack signature");
     }
     return isValid;
   } catch (e) {
     // oxlint-disable-next-line no-console
     console.warn("Signature verification error:", e.message);
-    // Allow request to proceed for debugging
-    return true;
+    return false;
   }
 }
 

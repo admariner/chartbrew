@@ -114,6 +114,7 @@ function getGlobalAllowPrivateNetworkCalls() {
 function normalizeHostname(hostname) {
   return String(hostname || "")
     .trim()
+    .replace(/^\[|\]$/g, "")
     .replace(/\.$/, "")
     .toLowerCase();
 }
@@ -170,25 +171,27 @@ function expandIpv6(address) {
 function isMetadataAddress(address) {
   if (METADATA_IP_ADDRESSES.has(address)) return true;
 
-  if (address.startsWith("::ffff:")) {
-    const mappedIpv4 = address.replace("::ffff:", "");
-    return METADATA_IP_ADDRESSES.has(mappedIpv4);
-  }
-
-  const nat64Ipv4 = getNat64EmbeddedIpv4(address);
-  if (nat64Ipv4) {
-    return METADATA_IP_ADDRESSES.has(nat64Ipv4);
+  const translatedIpv4 = getMappedIpv4(address);
+  if (translatedIpv4) {
+    return METADATA_IP_ADDRESSES.has(translatedIpv4);
   }
 
   return false;
 }
 
 function getMappedIpv4(address) {
-  if (address.startsWith("::ffff:")) {
-    const mappedIpv4 = address.replace("::ffff:", "");
-    return net.isIP(mappedIpv4) === 4 ? mappedIpv4 : null;
+  const normalizedAddress = normalizeIpAddress(address).replace(/^\[|\]$/g, "");
+  if (normalizedAddress.startsWith("::ffff:")) {
+    const mappedIpv4 = normalizedAddress.replace("::ffff:", "");
+    if (net.isIP(mappedIpv4) === 4) return mappedIpv4;
+
+    const groups = expandIpv6(normalizedAddress);
+    if (!groups || groups[5] !== 0xffff) return null;
+
+    const lo = (groups[6] << 16) | groups[7];
+    return [(lo >>> 24) & 0xff, (lo >>> 16) & 0xff, (lo >>> 8) & 0xff, lo & 0xff].join(".");
   }
-  return getNat64EmbeddedIpv4(address);
+  return getNat64EmbeddedIpv4(normalizedAddress);
 }
 
 function isPrivateOrReservedAddress(address) {
